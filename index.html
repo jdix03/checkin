@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Phone Check-in</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Check-in">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+/* Same colors as the attendance app (static/css/style.css): navy and blue by
+   default, Flight Academy's red/tan/blue when the roster says theme "ftc". */
+:root {
+  --bg: #0f172a; --panel: #1e293b; --panel-light: #334155; --text: #f1f5f9;
+  --muted: #94a3b8; --accent: #3b82f6; --on-accent: #fff; --success: #22c55e;
+  --danger: #ef4444; --warn: #f59e0b; --bar: #1e293b; --bar-text: #f1f5f9;
+}
+:root[data-theme="ftc"] {
+  --bg: #ffeedb; --panel: #fffaf3; --panel-light: #f1d9bf; --text: #0f1f45;
+  --muted: #6b5d52; --accent: #1f7ab3; --success: #15803d; --danger: #b91c1c;
+  --bar: #d43b4f; --bar-text: #ffeedb;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 17px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+header { position: sticky; top: 0; z-index: 5; background: var(--bar); color: var(--bar-text);
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px; }
+header h1 { margin: 0; font-size: 1.15rem; }
+header .sub { font-size: .85rem; opacity: .85; }
+main { padding: 12px 16px; }
+button { font: inherit; border: 0; border-radius: 12px; padding: 12px 16px; cursor: pointer;
+  background: var(--panel-light); color: var(--text); }
+button.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+button.danger { background: var(--danger); color: #fff; }
+button.wide { width: 100%; }
+button:disabled { opacity: .5; }
+.card { background: var(--panel); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+label { display: block; margin: 10px 0 4px; font-weight: 600; }
+input[type=text], input[type=search], select { width: 100%; font: inherit; padding: 11px 12px;
+  border-radius: 10px; border: 1px solid var(--panel-light); background: var(--bg); color: var(--text); }
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; }
+.event { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.count { font-size: 1.6rem; font-weight: 700; text-align: right; }
+.search { position: sticky; top: calc(62px + env(safe-area-inset-top)); z-index: 4; background: var(--bg); padding: 4px 0 8px; }
+.group { margin: 14px 0 6px; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.student { display: flex; align-items: center; justify-content: space-between; width: 100%;
+  text-align: left; background: var(--panel); margin-bottom: 6px; padding: 14px; }
+.student .name { font-weight: 600; }
+.pill { font-size: .8rem; padding: 4px 10px; border-radius: 999px; background: var(--panel-light); color: var(--muted); white-space: nowrap; }
+.student.in { box-shadow: inset 4px 0 0 var(--success); }
+.student.in .pill { background: var(--success); color: #fff; }
+.bottom { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--panel);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; gap: 8px;
+  box-shadow: 0 -2px 12px rgba(0,0,0,.25); }
+.bottom button { flex: 1; }
+.badge { display: inline-block; min-width: 1.4em; padding: 0 .4em; margin-left: 4px; border-radius: 999px;
+  background: var(--warn); color: #000; font-size: .8rem; }
+.toast { position: fixed; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 7;
+  background: var(--text); color: var(--bg); border-radius: 12px; padding: 12px 14px;
+  display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.toast button { background: transparent; color: var(--accent); font-weight: 700; padding: 4px 8px; }
+.toast[hidden] { display: none; }
+dialog { border: 0; border-radius: 16px; background: var(--panel); color: var(--text); width: min(92vw, 440px); padding: 18px; }
+dialog::backdrop { background: rgba(0,0,0,.55); }
+dialog h2 { margin: 0 0 6px; font-size: 1.2rem; }
+.actions { display: flex; gap: 8px; margin-top: 16px; }
+.actions > * { flex: 1; }
+.past { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--panel-light); }
+.ok { color: var(--success); }
+.warn { color: var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Phone Check-in</h1>
+  <div class="sub" id="subtitle">Attendance</div>
+</header>
+<main id="main"></main>
+<div class="bottom" id="bottom" hidden>
+  <button id="menuBtn">Menu</button>
+  <button class="primary" id="sendBtn">Send to Drive</button>
+</div>
+<div class="toast" id="toast" hidden><span id="toastText"></span><button id="undoBtn">Undo</button></div>
+<input type="file" id="rosterFile" accept=".json,application/json" hidden>
+
+<dialog id="startDlg">
+  <form method="dialog" id="startForm">
+    <h2>Start checking in</h2>
+    <div class="muted small">Becomes one meeting in the attendance app. Start a new one each day.</div>
+    <label for="evName">Event name</label>
+    <input type="text" id="evName" placeholder="e.g. Peachtree District Event" autocomplete="off">
+    <label for="evKind">Kind</label>
+    <select id="evKind">
+      <option value="competition">Competition (doesn't count toward attendance %)</option>
+      <option value="outreach">Outreach (counts toward attendance %)</option>
+    </select>
+    <div class="actions">
+      <button value="cancel" formnovalidate>Cancel</button>
+      <button class="primary" value="start" id="startGo">Start</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="menuDlg">
+  <h2>Menu</h2>
+  <div id="menuBody"></div>
+  <div class="actions"><button id="menuClose">Close</button></div>
+</dialog>
+
+<script>
+'use strict';
+const STORE = 'attendance-phone-checkin-v1';
+const $ = id => document.getElementById(id);
+
+// --- saved state (on this phone only, until it's sent) -----------------------
+let state = load();
+function load() {
+  try { return Object.assign({roster: null, meetings: []}, JSON.parse(localStorage.getItem(STORE) || '{}')); }
+  catch (e) { return {roster: null, meetings: []}; }
+}
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify(state)); }
+  catch (e) { alert('Could not save on this phone: ' + e.message); }
+}
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+
+// Times are stored as local time without a time zone, the way the attendance
+// app's database stores them.
+const pad = n => String(n).padStart(2, '0');
+function localIso(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+const today = () => localIso().slice(0, 10);
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+}
+function fmtDate(iso) {
+  return new Date(iso.slice(0, 10) + 'T12:00:00').toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'});
+}
+const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+function active() { return state.meetings.find(m => !m.ended) || null; }
+function lastActivity(m) {
+  const t = m.records.flatMap(r => [r.in, r.out]).filter(Boolean).sort();
+  return t.length ? t[t.length - 1] : m.started;
+}
+function unsent() { return state.meetings.filter(m => m.records.length && (!m.sentAt || m.changedAt > m.sentAt)); }
+function touch(m) { m.changedAt = localIso(); }
+
+// A meeting left running overnight ends at its last check-in or check-out.
+function closeStale() {
+  const m = active();
+  if (m && m.date !== today()) {
+    endMeeting(m, lastActivity(m));
+  }
+}
+
+function endMeeting(m, at) {
+  at = at || localIso();
+  for (const r of m.records) if (!r.out) r.out = at;
+  m.ended = at;
+  touch(m);
+  save();
+}
+
+function openRecord(m, id) { return m.records.find(r => r.student_id === id && !r.out); }
+
+// --- screens -----------------------------------------------------------------
+let search = '';
+function render() {
+  const roster = state.roster;
+  document.documentElement.dataset.theme = roster && roster.theme === 'ftc' ? 'ftc' : '';
+  $('title').textContent = roster ? (roster.program || roster.team) : 'Phone Check-in';
+  $('bottom').hidden = !roster;
+  const n = unsent().length;
+  $('sendBtn').innerHTML = 'Send to Drive' + (n ? `<span class="badge">${n}</span>` : '');
+  if (!roster) return renderSetup();
+  closeStale();
+  const m = active();
+  $('subtitle').textContent = m ? `${m.name} · ${fmtDate(m.date)}` : 'Phone check-in';
+  if (!m) return renderIdle();
+  renderList(m);
+}
+
+function renderSetup() {
+  $('subtitle').textContent = 'Set up this phone';
+  $('main').innerHTML = `
+    <div class="card">
+      <h2 style="margin-top:0">Load your team's roster</h2>
+      <p>On the attendance computer's Google Drive, open the team folder, then
+      <b>Phone Check-ins</b>, and pick <b>phone_roster.json</b>.</p>
+      <p class="muted small">Make sure Google Drive is turned on in the Files app first
+      (Files → Browse → ··· → Edit → Google Drive). Do this while you have internet.
+      After that, check-ins work without signal.</p>
+      <button class="primary wide" onclick="$('rosterFile').click()">Choose roster file</button>
+    </div>`;
+}
+
+function renderIdle() {
+  const recent = state.meetings.slice(-3).reverse();
+  $('main').innerHTML = `
+    <div class="card">
+      <p style="margin-top:0">${state.roster.students.length} students on the roster.</p>
+      <button class="primary wide" id="startBtn">Start checking in</button>
+    </div>
+    ${recent.length ? `<div class="group">Recent</div>` + recent.map(pastRow).join('') : ''}`;
+  $('startBtn').onclick = openStart;
+}
+
+function pastRow(m) {
+  const people = new Set(m.records.map(r => r.student_id)).size;
+  const sent = m.sentAt && m.changedAt <= m.sentAt;
+  return `<div class="card past"><div><b>${esc(m.name)}</b><div class="muted small">${fmtDate(m.date)} · ${people} checked in</div></div>
+    <span class="small ${sent ? 'ok' : 'warn'}">${sent ? 'Sent' : 'Not sent'}</span></div>`;
+}
+
+function renderList(m) {
+  const q = search.trim().toLowerCase();
+  const students = state.roster.students.filter(s => !q || `${s.first} ${s.last}`.toLowerCase().includes(q));
+  const here = state.roster.students.filter(s => openRecord(m, s.id)).length;
+  const tile = s => {
+    const r = openRecord(m, s.id);
+    const before = m.records.filter(x => x.student_id === s.id && x.out);
+    const status = r ? `In ${fmtTime(r.in)}` : (before.length ? `Out ${fmtTime(before[before.length - 1].out)}` : 'Not here');
+    return `<button class="student ${r ? 'in' : ''}" data-id="${s.id}">
+      <span class="name">${esc(s.first)} ${esc(s.last)}</span><span class="pill">${status}</span></button>`;
+  };
+  const out = students.filter(s => !openRecord(m, s.id));
+  const inn = students.filter(s => openRecord(m, s.id));
+  $('main').innerHTML = `
+    <div class="card event">
+      <div><b>${esc(m.name)}</b><div class="muted small">${m.kind === 'outreach' ? 'Outreach' : 'Competition'} · started ${fmtTime(m.started)}</div></div>
+      <div class="count">${here}<div class="muted small" style="font-weight:400">here</div></div>
+    </div>
+    <div class="search"><input type="search" id="q" placeholder="Search names" value="${esc(search)}" autocomplete="off"></div>
+    ${out.length ? `<div class="group">Tap to check in</div>` + out.map(tile).join('') : ''}
+    ${inn.length ? `<div class="group">Here now · tap to check out</div>` + inn.map(tile).join('') : ''}
+    ${!students.length ? `<p class="muted">No one matches “${esc(search)}”.</p>` : ''}
+    <button class="danger wide" id="endBtn" style="margin-top:18px">End for today</button>`;
+  const qEl = $('q');
+  qEl.oninput = () => { search = qEl.value; const pos = qEl.selectionStart; render(); const n = $('q'); n.focus(); n.setSelectionRange(pos, pos); };
+  for (const b of document.querySelectorAll('.student')) b.onclick = () => toggle(m, Number(b.dataset.id));
+  $('endBtn').onclick = () => {
+    if (confirm(`End “${m.name}” for today? Everyone still here (${here}) is checked out now.`)) {
+      endMeeting(m); search = ''; render(); offerSend();
+    }
+  };
+}
+
+// --- check in / out ------------------------------------------------------------
+let undo = null, toastTimer = null;
+function toggle(m, id) {
+  const s = state.roster.students.find(x => x.id === id);
+  const r = openRecord(m, id);
+  const now = localIso();
+  if (r) {
+    r.out = now;
+    undo = () => { r.out = null; };
+    showToast(`${s.first} ${s.last} checked out ${fmtTime(now)}`);
+  } else {
+    const rec = {student_id: id, name: `${s.first} ${s.last}`, in: now, out: null};
+    m.records.push(rec);
+    undo = () => { m.records.splice(m.records.indexOf(rec), 1); };
+    showToast(`${s.first} ${s.last} checked in ${fmtTime(now)}`);
+  }
+  touch(m); save();
+  if (search) search = '';
+  render();
+}
+function showToast(text) {
+  $('toastText').textContent = text;
+  $('toast').hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('toast').hidden = true; undo = null; }, 5000);
+}
+$('undoBtn').onclick = () => {
+  const m = active();
+  if (undo && m) { undo(); touch(m); save(); }
+  undo = null; $('toast').hidden = true; render();
+};
+
+// --- starting --------------------------------------------------------------------
+function openStart() {
+  const last = state.meetings[state.meetings.length - 1];
+  $('evName').value = last ? last.name : '';
+  $('evKind').value = last ? last.kind : 'competition';
+  $('startDlg').showModal();
+}
+$('startDlg').addEventListener('close', () => {
+  if ($('startDlg').returnValue !== 'start') return;
+  const name = $('evName').value.trim() || 'Competition';
+  const now = localIso();
+  state.meetings.push({key: newKey(), name, kind: $('evKind').value, date: now.slice(0, 10),
+                       started: now, ended: null, records: [], changedAt: now, sentAt: null});
+  save(); render();
+});
+
+// --- roster ------------------------------------------------------------------------
+$('rosterFile').onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  let data;
+  try { data = JSON.parse(await file.text()); } catch (err) { return alert("That file isn't a roster."); }
+  if (data.type !== 'attendance_roster' || !Array.isArray(data.students)) {
+    return alert('That isn\'t phone_roster.json. Pick the file named phone_roster.json in the Phone Check-ins folder.');
+  }
+  if (state.roster && state.roster.team !== data.team && unsent().length &&
+      !confirm(`This phone has check-ins for ${state.roster.team} that haven't been sent. Switch to ${data.team} anyway? (They stay on this phone.)`)) return;
+  state.roster = data;
+  save(); render();
+  showToast(`Roster loaded: ${data.students.length} students`);
+};
+
+// --- sending ------------------------------------------------------------------------
+function exportFile() {
+  const stamp = localIso().replace(/[-:]/g, '').replace('T', '-');
+  const team = (state.roster.team || 'team').replace(/[^A-Za-z0-9]+/g, '-');
+  const body = {type: 'phone_checkins', team: state.roster.team, sent: localIso(),
+                meetings: state.meetings.filter(m => m.records.length).map(m => ({
+                  key: m.key, name: m.name, kind: m.kind, started: m.started, ended: m.ended,
+                  records: m.records.map(r => ({student_id: r.student_id, name: r.name, in: r.in, out: r.out}))}))};
+  return new File([JSON.stringify(body, null, 2)], `checkins_${team}_${stamp}.json`, {type: 'application/json'});
+}
+
+async function send() {
+  if (!state.meetings.some(m => m.records.length)) return alert('No check-ins on this phone yet.');
+  const file = exportFile();
+  const sentAt = localIso();
+  try {
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      await navigator.share({files: [file]});
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(file); a.download = file.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      alert('Saved the file to Downloads. Move it into the Phone Check-ins folder in Google Drive.');
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') return; // closed the share sheet
+    return alert('Could not send: ' + err.message);
+  }
+  for (const m of state.meetings) m.sentAt = sentAt;
+  save(); render();
+  showSendHelp();
+}
+
+function showSendHelp() {
+  $('menuBody').innerHTML = `<p><b>Did you save it to Google Drive?</b></p>
+    <p class="small">In the share sheet: <b>Save to Files</b> → <b>Google Drive</b> → your team folder →
+    <b>Phone Check-ins</b> → Save. The attendance computer adds it the next time it's running and online.</p>
+    <p class="small muted">Sending again is fine. The computer replaces what it got before, so nothing gets counted twice.</p>`;
+  $('menuDlg').showModal();
+}
+
+function offerSend() {
+  if (unsent().length && confirm('Send these check-ins to the attendance computer now?')) send();
+}
+$('sendBtn').onclick = send;
+
+// --- menu -----------------------------------------------------------------------------
+$('menuBtn').onclick = () => {
+  const sentOld = state.meetings.filter(m => m.ended && m.sentAt && m.changedAt <= m.sentAt);
+  $('menuBody').innerHTML = `
+    <div class="muted small">${esc(state.roster.team)} · roster from ${state.roster.updated ? fmtDate(state.roster.updated) : '?'} · ${state.roster.students.length} students</div>
+    <p><button class="wide" id="mRoster">Load a newer roster</button></p>
+    ${state.meetings.length ? `<div class="group">On this phone</div>` + state.meetings.slice().reverse().map(pastRow).join('') : ''}
+    ${sentOld.length ? `<p><button class="wide" id="mClear">Remove ${sentOld.length} sent event${sentOld.length > 1 ? 's' : ''} from this phone</button></p>` : ''}
+    <p class="small muted">Check-ins are kept on this phone until you send them, even with no signal.
+    Add this page to your Home Screen (Share → Add to Home Screen) so it opens offline.</p>`;
+  $('mRoster').onclick = () => { $('menuDlg').close(); $('rosterFile').click(); };
+  if ($('mClear')) $('mClear').onclick = () => {
+    if (!confirm('Remove the events that were already sent? The attendance computer keeps its copy.')) return;
+    state.meetings = state.meetings.filter(m => !sentOld.includes(m));
+    save(); $('menuDlg').close(); render();
+  };
+  $('menuDlg').showModal();
+};
+$('menuClose').onclick = () => $('menuDlg').close();
+
+// Re-check for an overnight meeting when the phone wakes the page up.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+render();
+</script>
+</body>
+</html>
