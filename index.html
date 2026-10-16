@@ -475,7 +475,7 @@ $('menuClose').onclick = () => $('menuDlg').close();
 // Re-check for an overnight meeting when the phone wakes the page up.
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', {updateViaCache: 'none'});
 render();
 </script>
 </body>
