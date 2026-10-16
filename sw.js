@@ -1,7 +1,7 @@
 // Keeps the Phone Check-in page working with no signal: the page and its
 // icons are saved on the phone the first time it opens. Change VERSION
 // whenever a file here changes so phones pick up the new copy.
-const VERSION = 'checkin-v3';
+const VERSION = 'checkin-v4';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

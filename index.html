@@ -277,11 +277,26 @@ function renderIdle() {
   }
 }
 
-function pastRow(m) {
+function pastRow(m, withDelete) {
   const people = new Set(m.records.map(r => r.student_id)).size;
   const sent = m.sentAt && m.changedAt <= m.sentAt;
   return `<div class="card past"><div><b>${esc(m.name)}</b><div class="muted small">${fmtDate(m.date)} · ${people} checked in</div></div>
-    <span class="small ${sent ? 'ok' : 'warn'}">${sent ? 'Sent' : 'Not sent'}</span></div>`;
+    <span class="small ${sent ? 'ok' : 'warn'}">${sent ? 'Sent' : 'Not sent'}</span>
+    ${withDelete ? `<button class="small" data-del="${esc(m.key)}">Delete</button>` : ''}</div>`;
+}
+
+// Takes an event off this phone, e.g. one started by mistake. A copy that was
+// already sent stays in the attendance app (delete it there on the Meetings page).
+function deleteMeeting(m) {
+  const people = new Set(m.records.map(r => r.student_id)).size;
+  const sentBefore = Boolean(m.sentAt);
+  let msg = `Delete “${m.name}” (${fmtDate(m.date)}) from this phone?`;
+  if (people) msg += ` Its ${people} check-in${people > 1 ? 's' : ''} will be lost.`;
+  if (sentBefore) msg += ' It was already sent, so the attendance app keeps its copy. Delete that one on its Meetings page.';
+  if (!confirm(msg)) return false;
+  state.meetings = state.meetings.filter(x => x !== m);
+  save(); search = ''; render();
+  return true;
 }
 
 function renderList(m) {
@@ -306,7 +321,9 @@ function renderList(m) {
     ${out.length ? `<div class="group">Tap to check in</div>` + out.map(tile).join('') : ''}
     ${inn.length ? `<div class="group">Here now · tap to check out</div>` + inn.map(tile).join('') : ''}
     ${!students.length ? `<p class="muted">No one matches “${esc(search)}”.</p>` : ''}
-    <button class="danger wide" id="endBtn" style="margin-top:18px">End for today</button>`;
+    <button class="danger wide" id="endBtn" style="margin-top:18px">End for today</button>
+    <button class="wide small" id="delBtn" style="margin-top:10px">Started by mistake? Delete this event</button>`;
+  $('delBtn').onclick = () => deleteMeeting(m);
   const qEl = $('q');
   qEl.oninput = () => { search = qEl.value; const pos = qEl.selectionStart; render(); const n = $('q'); n.focus(); n.setSelectionRange(pos, pos); };
   for (const b of document.querySelectorAll('.student')) b.onclick = () => toggle(m, Number(b.dataset.id));
@@ -458,11 +475,17 @@ $('menuBtn').onclick = () => {
   $('menuBody').innerHTML = `
     <div class="muted small">${esc(state.roster.team)} · roster from ${state.roster.updated ? fmtDate(state.roster.updated) : '?'} · ${state.roster.students.length} students</div>
     <p><button class="wide" id="mRoster">Load a newer roster</button></p>
-    ${state.meetings.length ? `<div class="group">On this phone</div>` + state.meetings.slice().reverse().map(pastRow).join('') : ''}
+    ${state.meetings.length ? `<div class="group">On this phone</div>` + state.meetings.slice().reverse().map(m => pastRow(m, true)).join('') : ''}
     ${sentOld.length ? `<p><button class="wide" id="mClear">Remove ${sentOld.length} sent event${sentOld.length > 1 ? 's' : ''} from this phone</button></p>` : ''}
     <p class="small muted">Check-ins are kept on this phone until you send them, even with no signal.
     Add this page to your Home Screen (Share → Add to Home Screen) so it opens offline.</p>`;
   $('mRoster').onclick = () => { $('menuDlg').close(); $('rosterFile').click(); };
+  for (const b of $('menuBody').querySelectorAll('[data-del]')) {
+    b.onclick = () => {
+      const m = state.meetings.find(x => x.key === b.dataset.del);
+      if (m && deleteMeeting(m)) $('menuDlg').close();
+    };
+  }
   if ($('mClear')) $('mClear').onclick = () => {
     if (!confirm('Remove the events that were already sent? The attendance computer keeps its copy.')) return;
     state.meetings = state.meetings.filter(m => !sentOld.includes(m));
