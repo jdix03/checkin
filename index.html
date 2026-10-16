@@ -61,6 +61,7 @@ input[type=text], input[type=search], select { width: 100%; font: inherit; paddi
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; gap: 8px;
   box-shadow: 0 -2px 12px rgba(0,0,0,.25); }
 .bottom button { flex: 1; }
+.bottom[hidden] { display: none; }
 .badge { display: inline-block; min-width: 1.4em; padding: 0 .4em; margin-left: 4px; border-radius: 999px;
   background: var(--warn); color: #000; font-size: .8rem; }
 .toast { position: fixed; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 7;
@@ -95,6 +96,10 @@ dialog h2 { margin: 0 0 6px; font-size: 1.2rem; }
   <form method="dialog" id="startForm">
     <h2>Start checking in</h2>
     <div class="muted small">Becomes one meeting in the attendance app. Start a new one each day.</div>
+    <div id="evPickWrap">
+      <label for="evPick">Event</label>
+      <select id="evPick"></select>
+    </div>
     <label for="evName">Event name</label>
     <input type="text" id="evName" placeholder="e.g. Peachtree District Event" autocomplete="off">
     <label for="evKind">Kind</label>
@@ -206,15 +211,70 @@ function renderSetup() {
     </div>`;
 }
 
+// Competition/outreach days from the attendance app's Schedule page (sent in
+// the roster file). Multi-day events are one entry per date.
+const kindLabel = k => ({outreach: 'Outreach', meeting: 'Meeting'})[k] || 'Competition';
+
+// The meeting going on at the kiosk when the roster file was saved. The phone
+// can carry on with it: the people the kiosk had checked in start out checked
+// in here, and sending adds to that same meeting instead of making a new one.
+function kioskMeeting() {
+  const k = state.roster.open_meeting;
+  if (!k || k.date !== today() || state.meetings.some(m => m.continues_meeting === k.id)) return null;
+  return k;
+}
+function continueKiosk(k) {
+  const now = localIso();
+  const names = Object.fromEntries(state.roster.students.map(s => [s.id, `${s.first} ${s.last}`]));
+  state.meetings.push({key: newKey(), name: k.name, kind: k.kind, date: k.date, started: k.started,
+                       ended: null, continues_meeting: k.id, changedAt: now, sentAt: null,
+                       records: k.records.map(r => ({record_id: r.record_id, student_id: r.student_id,
+                                                     name: names[r.student_id] || '', in: r.in, out: null}))});
+  save(); render();
+}
+function todaysEvents() { return (state.roster.events || []).filter(e => e.date === today()); }
+// Each named event once, with its dates, for the picker.
+function eventChoices() {
+  const groups = [];
+  for (const e of state.roster.events || []) {
+    let g = groups.find(x => x.name === e.name && x.kind === e.kind);
+    if (!g) groups.push(g = {name: e.name, kind: e.kind, dates: []});
+    g.dates.push(e.date);
+  }
+  return groups;
+}
+function dateRange(dates) {
+  const a = fmtDate(dates[0]), b = fmtDate(dates[dates.length - 1]);
+  return a === b ? a : `${a} – ${b}`;
+}
+
 function renderIdle() {
   const recent = state.meetings.slice(-3).reverse();
+  const kiosk = kioskMeeting();
+  const todays = kiosk ? [] : todaysEvents();
+  const asOf = state.roster.updated ? fmtTime(state.roster.updated) : '?';
   $('main').innerHTML = `
+    ${kiosk ? `<div class="card">
+      <div class="muted small">Going on at the attendance computer · ${kindLabel(kiosk.kind)}</div>
+      <h2 style="margin:4px 0 4px">${esc(kiosk.name)}</h2>
+      <p class="small" style="margin:0 0 12px">${kiosk.records.length} checked in as of ${asOf}. They'll start out checked in here.</p>
+      <button class="primary wide" id="kioskBtn">Continue on this phone</button>
+    </div>` : ''}
+    ${todays.map((e, i) => `<div class="card">
+      <div class="muted small">On the schedule today · ${kindLabel(e.kind)}</div>
+      <h2 style="margin:4px 0 12px">${esc(e.name)}</h2>
+      <button class="primary wide" data-today="${i}">Start checking in</button>
+    </div>`).join('')}
     <div class="card">
       <p style="margin-top:0">${state.roster.students.length} students on the roster.</p>
-      <button class="primary wide" id="startBtn">Start checking in</button>
+      <button class="${todays.length || kiosk ? '' : 'primary '}wide" id="startBtn">${todays.length || kiosk ? 'Start a separate event' : 'Start checking in'}</button>
     </div>
     ${recent.length ? `<div class="group">Recent</div>` + recent.map(pastRow).join('') : ''}`;
   $('startBtn').onclick = openStart;
+  if (kiosk) $('kioskBtn').onclick = () => continueKiosk(kiosk);
+  for (const b of document.querySelectorAll('[data-today]')) {
+    b.onclick = () => { const e = todays[Number(b.dataset.today)]; startMeeting(e.name, e.kind); };
+  }
 }
 
 function pastRow(m) {
@@ -277,7 +337,8 @@ function toggle(m, id) {
   if (search) search = '';
   render();
 }
-function showToast(text) {
+function showToast(text, canUndo = true) {
+  $('undoBtn').hidden = !canUndo;
   $('toastText').textContent = text;
   $('toast').hidden = false;
   clearTimeout(toastTimer);
@@ -290,19 +351,40 @@ $('undoBtn').onclick = () => {
 };
 
 // --- starting --------------------------------------------------------------------
-function openStart() {
-  const last = state.meetings[state.meetings.length - 1];
-  $('evName').value = last ? last.name : '';
-  $('evKind').value = last ? last.kind : 'competition';
-  $('startDlg').showModal();
-}
-$('startDlg').addEventListener('close', () => {
-  if ($('startDlg').returnValue !== 'start') return;
-  const name = $('evName').value.trim() || 'Competition';
+function startMeeting(name, kind) {
   const now = localIso();
-  state.meetings.push({key: newKey(), name, kind: $('evKind').value, date: now.slice(0, 10),
+  state.meetings.push({key: newKey(), name: name || 'Competition', kind, date: now.slice(0, 10),
                        started: now, ended: null, records: [], changedAt: now, sentAt: null});
   save(); render();
+}
+
+let choices = [];
+function openStart() {
+  choices = eventChoices();
+  $('evPickWrap').hidden = !choices.length;
+  $('evPick').innerHTML = choices.map((c, i) =>
+    `<option value="${i}">${esc(c.name)} (${dateRange(c.dates)})</option>`).join('')
+    + '<option value="new">Something else…</option>';
+  // Start on the next event coming up, else whatever was used last.
+  const next = choices.findIndex(c => c.dates[c.dates.length - 1] >= today());
+  $('evPick').value = next >= 0 ? String(next) : 'new';
+  fillFromPick();
+  if ($('evPick').value === 'new') {
+    const last = state.meetings[state.meetings.length - 1];
+    $('evName').value = last ? last.name : '';
+    $('evKind').value = last ? last.kind : 'competition';
+  }
+  $('startDlg').showModal();
+}
+function fillFromPick() {
+  const c = choices[Number($('evPick').value)];
+  $('evName').value = c ? c.name : '';
+  $('evKind').value = c ? c.kind : 'competition';
+}
+$('evPick').onchange = fillFromPick;
+$('startDlg').addEventListener('close', () => {
+  if ($('startDlg').returnValue !== 'start') return;
+  startMeeting($('evName').value.trim(), $('evKind').value);
 });
 
 // --- roster ------------------------------------------------------------------------
@@ -319,7 +401,7 @@ $('rosterFile').onchange = async e => {
       !confirm(`This phone has check-ins for ${state.roster.team} that haven't been sent. Switch to ${data.team} anyway? (They stay on this phone.)`)) return;
   state.roster = data;
   save(); render();
-  showToast(`Roster loaded: ${data.students.length} students`);
+  showToast(`Roster loaded: ${data.students.length} students`, false);
 };
 
 // --- sending ------------------------------------------------------------------------
@@ -329,7 +411,9 @@ function exportFile() {
   const body = {type: 'phone_checkins', team: state.roster.team, sent: localIso(),
                 meetings: state.meetings.filter(m => m.records.length).map(m => ({
                   key: m.key, name: m.name, kind: m.kind, started: m.started, ended: m.ended,
-                  records: m.records.map(r => ({student_id: r.student_id, name: r.name, in: r.in, out: r.out}))}))};
+                  continues_meeting: m.continues_meeting || null,
+                  records: m.records.map(r => ({record_id: r.record_id || null, student_id: r.student_id,
+                                                name: r.name, in: r.in, out: r.out}))}))};
   return new File([JSON.stringify(body, null, 2)], `checkins_${team}_${stamp}.json`, {type: 'application/json'});
 }
 
